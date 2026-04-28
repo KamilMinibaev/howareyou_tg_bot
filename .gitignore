@@ -12,3 +12,6 @@ __pycache__/
 
 # IDE
 .idea/
+
+# DATA
+/data/user_answers.json
