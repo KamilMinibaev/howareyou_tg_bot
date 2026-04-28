@@ -67,10 +67,10 @@ def how_are_you(message):
 			)
 
 		else:
-			bot.reply_to(message, f'ПРОЕБАЛИ, надо было число от 0 до 10, а ты написал(а): {message.text}')
+			bot.reply_to(message, f'Какой ужас, надо было число от 0 до 10, а ты написал(а): {message.text}')
 
 	except ValueError:
-		bot.reply_to(message, f'ПРОЕБАЛИ, надо было чиселку, а ты написал(а): {message.text}')
+		bot.reply_to(message, f'Какой ужас, надо было чиселку, а ты написал(а): {message.text}')
 
 # запускаю бота
 bot.infinity_polling()
