@@ -7,6 +7,9 @@ from dotenv import load_dotenv
 
 import datetime
 
+import pandas as pd
+from tornado.escape import utf8
+
 # загружаю данные для токена бота
 load_dotenv()
 
@@ -17,11 +20,49 @@ token = os.getenv('TELEGRAM_BOT_TOKEN')
 bot = telebot.TeleBot(token)
 
 
-# обработка команд start, help
-@bot.message_handler(commands=['start', 'help'])
+# обработка команды start
+@bot.message_handler(commands=['start'])
 # определяю функцию, которая отвечает на команды start и help
 def send_welcome(message):
-	bot.reply_to(message, 'Howdy, how are you doing?')
+	bot.reply_to(
+		message,
+		'Привет! Этот бот будет писать тебе и спрашивать, как твои дела. '
+		'Писать он будет 3 раза в день.')
+
+	# загружаю датафрейм, в который буду класть юзеров, которые используют бота
+	df = pd.read_csv('data/user_status.csv')
+
+	# создаю переменную с человеческим форматом даты
+	message_date = datetime.datetime.fromtimestamp(message.date)
+
+	# создаю переменную с айди юезра для записи в историю
+	message_user = message.from_user.id
+
+	# ВОТ ТУТ ДОЛЖНА БЫТЬ ПРОВЕРКА НА ТО, ЕСТЬ ЛИ ЮЗЕР ИЗ СООБЩЕНИЯ В ДАННЫХ И КАКОЙ У НЕГО СТАТУС
+	# ЕСЛИ НЕТ, ТО СОЗДАЕМ ЕМУ СТРОЧКУ
+	# ЕСЛИ ЕСТЬ, ТО СМОТРИМ ЕГО СТАТУС
+	# ЕСЛИ СТАТУС АКТИВ, ТО НИЧЕГО НЕ ДЕЛАЕМ
+	# ЕСЛИ СТАТУС ДЕАКТИВ, ТО АКТИВИРУЕМ, ВЕДЬ ОН НАЖАЛ СТАРТ
+
+	# записываю инфу про юзера
+	user_data = [
+		{
+		'user_id': message_user,
+		'active_from': message_date,
+		'status': 'active'
+		}
+	]
+
+	# создаю датафрейм с инфой про юзера, чтобы потом объединить с основным файлом
+	user_data_df = pd.DataFrame(data=user_data)
+
+	# обновляю исходный датафрейм
+	df = pd.concat([df, user_data_df])
+
+	# сохраняю
+	df.to_csv('data/user_status.csv', index=False)
+
+	print(df.head())
 
 
 # обработка полученных сообщений
