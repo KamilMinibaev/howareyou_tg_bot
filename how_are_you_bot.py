@@ -1,5 +1,3 @@
-import json
-
 import telebot
 
 import os
@@ -8,7 +6,11 @@ from dotenv import load_dotenv
 import datetime
 
 import pandas as pd
-from tornado.escape import utf8
+
+import pytz
+
+from apscheduler.schedulers.background import BackgroundScheduler
+from apscheduler.triggers.cron import CronTrigger
 
 # загружаю данные для токена бота
 load_dotenv()
@@ -38,31 +40,42 @@ def send_welcome(message):
 	# создаю переменную с айди юезра для записи в историю
 	message_user = message.from_user.id
 
+	# записываю инфу про юзера
+	user_status_data = [
+		{
+			'user_id': message_user,
+			'active_from': message_date,
+			'status': 'active'
+		}
+	]
 	# ВОТ ТУТ ДОЛЖНА БЫТЬ ПРОВЕРКА НА ТО, ЕСТЬ ЛИ ЮЗЕР ИЗ СООБЩЕНИЯ В ДАННЫХ И КАКОЙ У НЕГО СТАТУС
 	# ЕСЛИ НЕТ, ТО СОЗДАЕМ ЕМУ СТРОЧКУ
+	# ЕСЛИ ДВА ЧЕЛОВЕКА НАПИШУТ В ОДИН МОМЕНТ, ТО У КОГО-ТО НЕ ПОЯВИТСЯ ЗАПИСЬ (посмотреть про mutex)
+	if message_user not in df['user_id'].values: #кстати, операция сложная, сортировки еще нет
+		# создаю датафрейм с инфой про юзера, чтобы потом объединить с основным файлом
+		user_status_data_df = pd.DataFrame(data=user_status_data)
+
+		# обновляю исходный датафрейм
+		user_statuses = pd.concat([df, user_status_data_df])
+
+		# сохраняю
+		user_statuses.to_csv('data/user_status.csv', index=False)
+
+		# создаю файл для пользователя, если пользователя нет
+		user_answer = pd.DataFrame(columns=['user_id', 'date', 'value'])
+
+		# сохраняю новый файл для нового юзера
+		user_answer.to_csv(f'data/{message_user}_answer.csv', index=False)
+
+		# для проверки - потом удалить
+		print(df.head())
+
+	else:
+		pass
+		# find max(value) from column active_from - watch status
 	# ЕСЛИ ЕСТЬ, ТО СМОТРИМ ЕГО СТАТУС
 	# ЕСЛИ СТАТУС АКТИВ, ТО НИЧЕГО НЕ ДЕЛАЕМ
 	# ЕСЛИ СТАТУС ДЕАКТИВ, ТО АКТИВИРУЕМ, ВЕДЬ ОН НАЖАЛ СТАРТ
-
-	# записываю инфу про юзера
-	user_data = [
-		{
-		'user_id': message_user,
-		'active_from': message_date,
-		'status': 'active'
-		}
-	]
-
-	# создаю датафрейм с инфой про юзера, чтобы потом объединить с основным файлом
-	user_data_df = pd.DataFrame(data=user_data)
-
-	# обновляю исходный датафрейм
-	df = pd.concat([df, user_data_df])
-
-	# сохраняю
-	df.to_csv('data/user_status.csv', index=False)
-
-	print(df.head())
 
 
 # обработка полученных сообщений
@@ -79,39 +92,75 @@ def how_are_you(message):
 	message_user = message.from_user.id
 
 	try:
+		# заменяю запятую точкой, если кто-то ошибся
 		formatted_value = float(message.text.replace(',', '.'))
 
+		# проверяю значение числа на попадание в разрешенный отрезок
 		if 0 <= formatted_value <= 10:
 
 			# формирую дикт для добавления его в данные
-			data_to_json = {
-				'user_id': message_user,
+			data_to_add = [
+				{
 				'date': f'{message_date}',
 				'value': formatted_value
-			}
+				}
+			]
 
-			# беру актуальные данные
-			with open('data/user_answers.json') as f:
-				d = json.load(f)
-				print(d)
+			data_to_add_df = pd.DataFrame(data=data_to_add)
 
-			# добавляю актуальное сообщени в list, который я вытащил из json
-			d.append(data_to_json)
+			# открываю существующий файл с ответами юзера
+			user_answers_df = pd.read_csv(f'data/{message_user}_answer.csv')
 
-			# кладу обновленный list в json файл
-			with open('data/user_answers.json', 'w') as f:
-				json.dump(d, f, indent=4)
+			# объединяю новый ответ со старым ответом
+			user_answers_df = pd.concat([user_answers_df, data_to_add_df])
 
+			# объединяю новый ответ со старым ответом
+			user_answers_df.to_csv(f'data/{message_user}_answer.csv', index=False)
+
+			# ответ в чат
 			bot.reply_to(
 				message,
 				f'Записал твой ответ = {formatted_value} на дату = {message_date}'
 			)
 
+		# если ответ не попал в дозволенный диапазон
 		else:
 			bot.reply_to(message, f'Какой ужас, надо было число от 0 до 10, а ты написал(а): {message.text}')
 
+	# если ответ не число
 	except ValueError:
 		bot.reply_to(message, f'Какой ужас, надо было чиселку, а ты написал(а): {message.text}')
+
+
+# определяю функцию, которая будет всем задавать вопрос
+def send_question():
+
+	# создаю вопрос
+	question = 'Как твои дела по десятибальной школе с десятыми долями?'
+
+	users_data_df = pd.read_csv('data/user_status.csv')
+
+	for user in users_data_df['user_id']:
+
+		bot.send_message(chat_id=user, text=question)
+
+
+# создаю расписание отправки сообщений
+scheduler = BackgroundScheduler(timezone=pytz.timezone("Europe/Moscow"))
+
+trigger_times = [
+	CronTrigger(hour=20, minute=47, second=10),
+	CronTrigger(hour=20, minute=47, second=20),
+	CronTrigger(hour=20, minute=47, second=30)
+	]
+
+for trigger in trigger_times:
+	scheduler.add_job(
+		send_question,
+		trigger=trigger
+	)
+
+scheduler.start()
 
 # запускаю бота
 bot.infinity_polling()
