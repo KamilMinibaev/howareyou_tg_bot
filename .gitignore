@@ -14,5 +14,4 @@ __pycache__/
 .idea/
 
 # DATA
-/data/91324999_answer.csv
-/data/user_status.csv
+/data/user_answers.json

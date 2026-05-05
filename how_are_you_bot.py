@@ -32,7 +32,7 @@ def send_welcome(message):
 		'Писать он будет 3 раза в день.')
 
 	# загружаю датафрейм, в который буду класть юзеров, которые используют бота
-	df = pd.read_csv('data/user_status.csv')
+	df = pd.read_csv('data/user_statuses.csv')
 
 	# создаю переменную с человеческим форматом даты
 	message_date = datetime.datetime.fromtimestamp(message.date)
@@ -41,7 +41,7 @@ def send_welcome(message):
 	message_user = message.from_user.id
 
 	# записываю инфу про юзера
-	user_status_data = [
+	user_statuses_data = [
 		{
 			'user_id': message_user,
 			'active_from': message_date,
@@ -53,13 +53,13 @@ def send_welcome(message):
 	# ЕСЛИ ДВА ЧЕЛОВЕКА НАПИШУТ В ОДИН МОМЕНТ, ТО У КОГО-ТО НЕ ПОЯВИТСЯ ЗАПИСЬ (посмотреть про mutex)
 	if message_user not in df['user_id'].values: #кстати, операция сложная, сортировки еще нет
 		# создаю датафрейм с инфой про юзера, чтобы потом объединить с основным файлом
-		user_status_data_df = pd.DataFrame(data=user_status_data)
+		user_statuses_data_df = pd.DataFrame(data=user_statuses_data)
 
 		# обновляю исходный датафрейм
-		user_statuses = pd.concat([df, user_status_data_df])
+		user_statuses = pd.concat([df, user_statuses_data_df])
 
 		# сохраняю
-		user_statuses.to_csv('data/user_status.csv', index=False)
+		user_statuses.to_csv('data/user_statuses.csv', index=False)
 
 		# создаю файл для пользователя, если пользователя нет
 		user_answer = pd.DataFrame(columns=['user_id', 'date', 'value'])
@@ -67,8 +67,6 @@ def send_welcome(message):
 		# сохраняю новый файл для нового юзера
 		user_answer.to_csv(f'data/{message_user}_answer.csv', index=False)
 
-		# для проверки - потом удалить
-		print(df.head())
 
 	else:
 		pass
@@ -138,7 +136,7 @@ def send_question():
 	# создаю вопрос
 	question = 'Как твои дела по десятибальной школе с десятыми долями?'
 
-	users_data_df = pd.read_csv('data/user_status.csv')
+	users_data_df = pd.read_csv('data/user_statuses.csv')
 
 	for user in users_data_df['user_id']:
 
@@ -148,18 +146,21 @@ def send_question():
 # создаю расписание отправки сообщений
 scheduler = BackgroundScheduler(timezone=pytz.timezone("Europe/Moscow"))
 
+# создаю три времени, в которые бот будет писать сообщение
 trigger_times = [
 	CronTrigger(hour=20, minute=47, second=10),
 	CronTrigger(hour=20, minute=47, second=20),
 	CronTrigger(hour=20, minute=47, second=30)
 	]
 
+# для каждой точки отправляю сообщение
 for trigger in trigger_times:
 	scheduler.add_job(
 		send_question,
 		trigger=trigger
 	)
 
+# запускаю расписание
 scheduler.start()
 
 # запускаю бота
