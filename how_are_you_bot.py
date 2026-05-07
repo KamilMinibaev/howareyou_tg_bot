@@ -18,14 +18,17 @@ load_dotenv()
 # создаю переменную с токеном бота
 token = os.getenv('TELEGRAM_BOT_TOKEN')
 
+if not token:
+	raise ValueError('Не нашел token')
+
 # создаю объект, класс которого ТелеБот
 bot = telebot.TeleBot(token)
 
 
 # обработка команды start
 @bot.message_handler(commands=['start'])
-# определяю функцию, которая отвечает на команды start и help
-def send_welcome(message):
+# определяю функцию, которая отвечает на команду start
+def start(message):
 	bot.reply_to(
 		message,
 		'Привет! Этот бот будет писать тебе и спрашивать, как твои дела. '
@@ -48,9 +51,9 @@ def send_welcome(message):
 			'status': 'active'
 		}
 	]
-	# ВОТ ТУТ ДОЛЖНА БЫТЬ ПРОВЕРКА НА ТО, ЕСТЬ ЛИ ЮЗЕР ИЗ СООБЩЕНИЯ В ДАННЫХ И КАКОЙ У НЕГО СТАТУС
-	# ЕСЛИ НЕТ, ТО СОЗДАЕМ ЕМУ СТРОЧКУ
+
 	# ЕСЛИ ДВА ЧЕЛОВЕКА НАПИШУТ В ОДИН МОМЕНТ, ТО У КОГО-ТО НЕ ПОЯВИТСЯ ЗАПИСЬ (посмотреть про mutex)
+	# если юзер новый, то есть нажал /start впервые
 	if message_user not in df['user_id'].values: #кстати, операция сложная, сортировки еще нет
 		# создаю датафрейм с инфой про юзера, чтобы потом объединить с основным файлом
 		user_statuses_data_df = pd.DataFrame(data=user_statuses_data)
@@ -61,19 +64,55 @@ def send_welcome(message):
 		# сохраняю
 		user_statuses.to_csv('data/user_statuses.csv', index=False)
 
-		# создаю файл для пользователя, если пользователя нет
+		# создаю файл для пользователя, если пользователь впервые активировал бота
 		user_answer = pd.DataFrame(columns=['user_id', 'date', 'value'])
 
 		# сохраняю новый файл для нового юзера
 		user_answer.to_csv(f'data/{message_user}_answer.csv', index=False)
 
+	# если юзер не новый
+	else:
+		# если актуальный статус активный, то ничего не меняем
+		if df.query(f'user_id == {message_user}').status.to_list() == ['active']:
+			pass
+
+		# если неактивный статус, то меняем на активный, ведь прописали /start
+		else:
+			df.loc[df.user_id == message_user, 'status'] = 'active'
+
+			# сохраняем новый статус юзера
+			df.to_csv('data/user_statuses.csv', index=False)
+
+
+# обработка команды stop
+@bot.message_handler(commands=['stop'])
+# определяю функцию, которая отвечает на команду stop
+def stop(message):
+	# загружаю датафрейм, в который буду класть юзеров, которые используют бота
+	df = pd.read_csv('data/user_statuses.csv')
+
+	# создаю переменную с айди юезра для записи в историю
+	message_user = message.from_user.id
+
+	# если актуальный статус активный, то меняем его на stop
+	if df.query(f'user_id == {message_user}').status.to_list() == ['active']:
+		df.loc[df.user_id == message_user, 'status'] = 'stop'
+
+		# сохраняем новый статус юзера
+		df.to_csv('data/user_statuses.csv', index=False)
+
+		# отправляем сообщение о завершении
+		bot.reply_to(
+			message,
+			'Все с тобой понятно, закругляемся)')
 
 	else:
-		pass
-		# find max(value) from column active_from - watch status
-	# ЕСЛИ ЕСТЬ, ТО СМОТРИМ ЕГО СТАТУС
-	# ЕСЛИ СТАТУС АКТИВ, ТО НИЧЕГО НЕ ДЕЛАЕМ
-	# ЕСЛИ СТАТУС ДЕАКТИВ, ТО АКТИВИРУЕМ, ВЕДЬ ОН НАЖАЛ СТАРТ
+		# отправляем понятный посыл
+		bot.reply_to(
+			message,
+			'Чтобы что-то остановить, нужно сначала начать.')
+
+
 
 
 # обработка полученных сообщений
@@ -89,46 +128,55 @@ def how_are_you(message):
 	# создаю переменную с айди юезра для записи в историю
 	message_user = message.from_user.id
 
-	try:
-		# заменяю запятую точкой, если кто-то ошибся
-		formatted_value = float(message.text.replace(',', '.'))
+	# загружаю датафрейм, в который буду класть юзеров, которые используют бота
+	df = pd.read_csv('data/user_statuses.csv')
 
-		# проверяю значение числа на попадание в разрешенный отрезок
-		if 0 <= formatted_value <= 10:
+	# если актуальный статус активный, то бот сохраняет ответы юзера
+	if df.query(f'user_id == {message_user}').status.to_list() == ['active']:
 
-			# формирую дикт для добавления его в данные
-			data_to_add = [
-				{
-				'date': f'{message_date}',
-				'value': formatted_value
-				}
-			]
+		try:
+			# заменяю запятую точкой, если кто-то ошибся
+			formatted_value = float(message.text.replace(',', '.'))
 
-			data_to_add_df = pd.DataFrame(data=data_to_add)
+			# проверяю значение числа на попадание в разрешенный отрезок
+			if 0 <= formatted_value <= 10:
 
-			# открываю существующий файл с ответами юзера
-			user_answers_df = pd.read_csv(f'data/{message_user}_answer.csv')
+				# формирую дикт для добавления его в данные
+				data_to_add = [
+					{
+					'date': f'{message_date}',
+					'value': formatted_value
+					}
+				]
 
-			# объединяю новый ответ со старым ответом
-			user_answers_df = pd.concat([user_answers_df, data_to_add_df])
+				data_to_add_df = pd.DataFrame(data=data_to_add)
 
-			# объединяю новый ответ со старым ответом
-			user_answers_df.to_csv(f'data/{message_user}_answer.csv', index=False)
+				# открываю существующий файл с ответами юзера
+				user_answers_df = pd.read_csv(f'data/{message_user}_answer.csv')
 
-			# ответ в чат
-			bot.reply_to(
-				message,
-				f'Записал твой ответ = {formatted_value} на дату = {message_date}'
-			)
+				# объединяю новый ответ со старым ответом
+				user_answers_df = pd.concat([user_answers_df, data_to_add_df])
 
-		# если ответ не попал в дозволенный диапазон
-		else:
-			bot.reply_to(message, f'Какой ужас, надо было число от 0 до 10, а ты написал(а): {message.text}')
+				# объединяю новый ответ со старым ответом
+				user_answers_df.to_csv(f'data/{message_user}_answer.csv', index=False)
 
-	# если ответ не число
-	except ValueError:
-		bot.reply_to(message, f'Какой ужас, надо было чиселку, а ты написал(а): {message.text}')
+				# ответ в чат
+				bot.reply_to(
+					message,
+					f'Записал твой ответ = {formatted_value} на дату = {message_date}'
+				)
 
+			# если ответ не попал в дозволенный диапазон
+			else:
+				bot.reply_to(message, f'Какой ужас, надо было число от 0 до 10, а ты написал(а): {message.text}')
+
+		# если ответ не число
+		except ValueError:
+			bot.reply_to(message, f'Какой ужас, надо было чиселку, а ты написал(а): {message.text}')
+
+	# если статус стоп у юзера, то подсвечиваем ему
+	else:
+		bot.reply_to(message, 'По моим данным мы прекратили общение, если хочешь возобновить, то пропиши /start')
 
 # определяю функцию, которая будет всем задавать вопрос
 def send_question():
@@ -136,10 +184,16 @@ def send_question():
 	# создаю вопрос
 	question = 'Как твои дела по десятибальной школе с десятыми долями?'
 
+	# беру данные юзеров
 	users_data_df = pd.read_csv('data/user_statuses.csv')
 
-	for user in users_data_df['user_id']:
+	# оставляю только тех, у кого активный статус
+	users_active_data_df = users_data_df[users_data_df['status'] == 'active']
 
+	# прохожу по каждому активному юзеру
+	for user in users_active_data_df['user_id']:
+
+		# отправляю юзеру вопрос
 		bot.send_message(chat_id=user, text=question)
 
 
@@ -148,9 +202,9 @@ scheduler = BackgroundScheduler(timezone=pytz.timezone("Europe/Moscow"))
 
 # создаю три времени, в которые бот будет писать сообщение
 trigger_times = [
-	CronTrigger(hour=20, minute=47, second=10),
-	CronTrigger(hour=20, minute=47, second=20),
-	CronTrigger(hour=20, minute=47, second=30)
+	CronTrigger(hour=23, minute=37, second=10),
+	CronTrigger(hour=23, minute=37, second=20),
+	CronTrigger(hour=23, minute=37, second=30)
 	]
 
 # для каждой точки отправляю сообщение
