@@ -1,0 +1,46 @@
+x-db-common: &db-common
+  container_name: db
+  image: postgres:18
+  restart: unless-stopped
+  environment:
+    POSTGRES_DB: "${POSTGRES_DB}"
+    POSTGRES_USER: "${POSTGRES_USER}"
+    POSTGRES_PASSWORD: "${POSTGRES_PASS}"
+  volumes:
+    - "${POSTGRES_DATA_FOLDER}:/var/lib/postgresql/18/docker"
+
+x-backend-common: &backend-common
+  container_name: tg-bot
+  restart: unless-stopped
+  build:
+    dockerfile: ./Dockerfile
+  environment:
+    PG_DSN: "postgresql+psycopg://${POSTGRES_USER}:${POSTGRES_PASS}@db:5432/${POSTGRES_DB}"
+    TELEGRAM_BOT_TOKEN: "${TELEGRAM_BOT_TOKEN}"
+
+services:
+  db-prod:
+    <<: *db-common
+    profiles:
+      - prod
+
+  db-stg:
+    <<: *db-common
+    profiles:
+      - stg
+    ports:
+      - "5432:5432"
+
+  backend-prod:
+    <<: *backend-common
+    profiles:
+      - prod
+    depends_on:
+      - db-prod
+
+  backend-stg:
+    <<: *backend-common
+    profiles:
+      - stg
+    depends_on:
+      - db-stg

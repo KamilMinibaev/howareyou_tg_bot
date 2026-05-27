@@ -1,7 +1,6 @@
 import telebot
 
 import os
-from dotenv import load_dotenv
 
 import datetime
 
@@ -9,17 +8,19 @@ import pandas as pd
 
 import pytz
 
+from how_are_you_bot_db import db, migrate_database
+
 from apscheduler.schedulers.background import BackgroundScheduler
 from apscheduler.triggers.cron import CronTrigger
+from sqlalchemy import text
 
-# загружаю данные для токена бота
-load_dotenv()
+migrate_database()
 
 # создаю переменную с токеном бота
 token = os.getenv('TELEGRAM_BOT_TOKEN')
 
 if not token:
-	raise ValueError('Не нашел token')
+    raise ValueError('Не нашел token')
 
 # создаю объект, класс которого ТелеБот
 bot = telebot.TeleBot(token)
@@ -29,193 +30,217 @@ bot = telebot.TeleBot(token)
 @bot.message_handler(commands=['start'])
 # определяю функцию, которая отвечает на команду start
 def start(message):
-	bot.reply_to(
-		message,
-		'Привет! Этот бот будет писать тебе и спрашивать, как твои дела. '
-		'Писать он будет 3 раза в день.')
+    # создаю переменную с айди юезра для записи в историю
+    message_user = message.from_user.id
 
-	# загружаю датафрейм, в который буду класть юзеров, которые используют бота
-	df = pd.read_csv('data/user_statuses.csv')
+    # загружаю датафрейм, в который буду класть юзеров, которые используют бота
+    df = pd.read_sql_query(f'select * from users_statuses where user_id = {message_user}', con=db)
 
-	# создаю переменную с человеческим форматом даты
-	message_date = datetime.datetime.fromtimestamp(message.date)
+    # ЕСЛИ ДВА ЧЕЛОВЕКА НАПИШУТ В ОДИН МОМЕНТ, ТО У КОГО-ТО НЕ ПОЯВИТСЯ ЗАПИСЬ (посмотреть про mutex)
+    # если юзер новый, то есть нажал /start впервые
+    if df.empty:
 
-	# создаю переменную с айди юезра для записи в историю
-	message_user = message.from_user.id
+        # записываю инфу про юзера
+        users_statuses_data = [
+            {
+                'user_id': message_user,
+                'status': 'active'
+            }
+        ]
 
-	# записываю инфу про юзера
-	user_statuses_data = [
-		{
-			'user_id': message_user,
-			'active_from': message_date,
-			'status': 'active'
-		}
-	]
+        # создаю датафрейм с инфой про юзера, чтобы потом объединить с основным файлом
+        users_statuses_data_df = pd.DataFrame(data=users_statuses_data)
 
-	# ЕСЛИ ДВА ЧЕЛОВЕКА НАПИШУТ В ОДИН МОМЕНТ, ТО У КОГО-ТО НЕ ПОЯВИТСЯ ЗАПИСЬ (посмотреть про mutex)
-	# если юзер новый, то есть нажал /start впервые
-	if message_user not in df['user_id'].values: #кстати, операция сложная, сортировки еще нет
-		# создаю датафрейм с инфой про юзера, чтобы потом объединить с основным файлом
-		user_statuses_data_df = pd.DataFrame(data=user_statuses_data)
+        users_statuses_data_df.to_sql('users_statuses', con=db, index=False, if_exists='append')
 
-		# обновляю исходный датафрейм
-		user_statuses = pd.concat([df, user_statuses_data_df])
+        bot.reply_to(
+            message,
+            'Привет! Этот бот будет писать тебе и спрашивать, как твои дела. '
+            'Писать он будет 3 раза в день.')
 
-		# сохраняю
-		user_statuses.to_csv('data/user_statuses.csv', index=False)
+    # если юзер не новый
+    elif df['status'][0] != 'active':
 
-		# создаю файл для пользователя, если пользователь впервые активировал бота
-		user_answer = pd.DataFrame(columns=['user_id', 'date', 'value'])
+        # сохраняем новый статус юзера
+        with db.connect() as conn:
+            conn.execute(
+                text("UPDATE users_statuses SET status = :status WHERE user_id = :id"),
+                {"status": "active", "id": message_user}
+            )
+            conn.commit()
 
-		# сохраняю новый файл для нового юзера
-		user_answer.to_csv(f'data/{message_user}_answer.csv', index=False)
+        bot.reply_to(
+            message,
+            'Привет! Ты снова активировал бота. '
+            'Теперь он будет писать тебе 3 раза в день.')
 
-	# если юзер не новый
-	else:
-		# если актуальный статус активный, то ничего не меняем
-		if df.query(f'user_id == {message_user}').status.to_list() == ['active']:
-			pass
-
-		# если неактивный статус, то меняем на активный, ведь прописали /start
-		else:
-			df.loc[df.user_id == message_user, 'status'] = 'active'
-
-			# сохраняем новый статус юзера
-			df.to_csv('data/user_statuses.csv', index=False)
+    else:
+        bot.reply_to(
+            message,
+            'У тебя активный статус, ты получаешь сообщения.')
 
 
 # обработка команды stop
 @bot.message_handler(commands=['stop'])
 # определяю функцию, которая отвечает на команду stop
 def stop(message):
-	# загружаю датафрейм, в который буду класть юзеров, которые используют бота
-	df = pd.read_csv('data/user_statuses.csv')
+    # создаю переменную с айди юезра для записи в историю
+    message_user = message.from_user.id
 
-	# создаю переменную с айди юезра для записи в историю
-	message_user = message.from_user.id
+    # загружаю датафрейм, в который буду класть юзеров, которые используют бота
+    df = pd.read_sql_query(f'select * from users_statuses where user_id = {message_user}', con=db)
 
-	# если актуальный статус активный, то меняем его на stop
-	if df.query(f'user_id == {message_user}').status.to_list() == ['active']:
-		df.loc[df.user_id == message_user, 'status'] = 'stop'
+    if df.empty:
+        # отправляем понятный посыл
+        bot.reply_to(
+            message,
+            'Чтобы что-то остановить, нужно сначала начать.')
 
-		# сохраняем новый статус юзера
-		df.to_csv('data/user_statuses.csv', index=False)
+    # если актуальный статус активный, то меняем его на stop
+    # если юзер не новый
+    elif df['status'][0] == 'active':
 
-		# отправляем сообщение о завершении
-		bot.reply_to(
-			message,
-			'Все с тобой понятно, закругляемся)')
+        # сохраняем новый статус юзера
+        with db.connect() as conn:
+            conn.execute(
+                text('UPDATE users_statuses SET status = :status WHERE user_id = :id'),
+                {"status": "stop", "id": message_user}
+            )
+            conn.commit()
 
-	else:
-		# отправляем понятный посыл
-		bot.reply_to(
-			message,
-			'Чтобы что-то остановить, нужно сначала начать.')
+        bot.reply_to(
+            message,
+            'Все с тобой понятно, закругляемся.')
 
-
+    else:
+        bot.reply_to(
+            message,
+            'Ты и так не получаешь сообщения, пропиши /start для возобновления.')
 
 
 # обработка полученных сообщений
 @bot.message_handler(func=lambda message: True)
 def how_are_you(message):
-	"""
-	функция проверяет, является ли сообщение числом, сохраняет полученный ответ при успехе и отправляет в чат
-	"""
+    """
+    функция проверяет, является ли сообщение числом, сохраняет полученный ответ при успехе и отправляет в чат
+    """
 
-	# создаю переменную с человеческим форматом даты
-	message_date = datetime.datetime.fromtimestamp(message.date)
+    # создаю переменную с айди юезра для записи в историю
+    message_user = message.from_user.id
 
-	# создаю переменную с айди юезра для записи в историю
-	message_user = message.from_user.id
+    df = pd.read_sql_query(f'select * from users_statuses where user_id = {message_user}', con=db)
 
-	# загружаю датафрейм, в который буду класть юзеров, которые используют бота
-	df = pd.read_csv('data/user_statuses.csv')
+    if df.empty:
+        bot.reply_to(
+            message,
+            'Тебя нет в списках, пропиши /start, чтобы получать вопросы.'
+        )
+        return
 
-	# если актуальный статус активный, то бот сохраняет ответы юзера
-	if df.query(f'user_id == {message_user}').status.to_list() == ['active']:
+    elif df['status'][0] == 'stop':
+        bot.reply_to(
+            message,
+            'Мы прекратили общение. Чтобы начать его заново, пропиши /start.'
+        )
+        return
 
-		try:
-			# заменяю запятую точкой, если кто-то ошибся
-			formatted_value = float(message.text.replace(',', '.'))
+    df = pd.read_sql_query(f''
+                           f'select '
+                           f'	* '
+                           f'from user_answers '
+                           f'where user_id = {message_user} '
+                           f'ORDER BY created_dt DESC '
+                           f'LIMIT 1'
+                           , con=db)
 
-			# проверяю значение числа на попадание в разрешенный отрезок
-			if 0 <= formatted_value <= 10:
+    if df.empty:
+        bot.reply_to(
+            message,
+            'Тебе еще не было вопросов, рано отвечать.'
+        )
+    elif df['answer_value'][0] is None:
+        try:
+            # заменяю запятую точкой, если кто-то ошибся
+            formatted_value = float(message.text.replace(',', '.'))
 
-				# формирую дикт для добавления его в данные
-				data_to_add = [
-					{
-					'date': f'{message_date}',
-					'value': formatted_value
-					}
-				]
+        # если ответ не число
+        except ValueError:
+            bot.reply_to(message, f'Какой ужас, надо было чиселку, а ты написал(а): {message.text}')
+            return
 
-				data_to_add_df = pd.DataFrame(data=data_to_add)
+        if formatted_value  < 0 or formatted_value > 10:
+            bot.reply_to(message, f'Какой ужас, надо было число от 0 до 10, а ты написал(а): {message.text}')
+            return
 
-				# открываю существующий файл с ответами юзера
-				user_answers_df = pd.read_csv(f'data/{message_user}_answer.csv')
+        with db.connect() as conn:
+            conn.execute(
+                text('UPDATE user_answers SET answer_value = :value WHERE user_id = :id AND created_dt = :date'),
+                {"value": formatted_value, "id": message_user, "date": df['created_dt'][0]}
+            )
+            conn.commit()
 
-				# объединяю новый ответ со старым ответом
-				user_answers_df = pd.concat([user_answers_df, data_to_add_df])
+        bot.reply_to(
+            message,
+            f'Записал твой ответ {formatted_value}.'
+        )
+    else:
+        try:
+            # заменяю запятую точкой, если кто-то ошибся
+            formatted_value = float(message.text.replace(',', '.'))
 
-				# объединяю новый ответ со старым ответом
-				user_answers_df.to_csv(f'data/{message_user}_answer.csv', index=False)
+        # если ответ не число
+        except ValueError:
+            bot.reply_to(message, f'Ну чего, ты хочешь меня на хер послать? '
+                                  f'Милости просим, давай. Я тебя тогда тоже нахер пошлю. '
+                                  f'Ну и чего? Обнимемся, вместе пойдем, да?')
+            return
 
-				# ответ в чат
-				bot.reply_to(
-					message,
-					f'Записал твой ответ = {formatted_value} на дату = {message_date}'
-				)
+        bot.reply_to(
+            message,
+            'Ты уже ответил, жди следующий вопрос.'
+        )
 
-			# если ответ не попал в дозволенный диапазон
-			else:
-				bot.reply_to(message, f'Какой ужас, надо было число от 0 до 10, а ты написал(а): {message.text}')
-
-		# если ответ не число
-		except ValueError:
-			bot.reply_to(message, f'Какой ужас, надо было чиселку, а ты написал(а): {message.text}')
-
-	# если статус стоп у юзера, то подсвечиваем ему
-	else:
-		bot.reply_to(message, 'По моим данным мы прекратили общение, если хочешь возобновить, то пропиши /start')
 
 # определяю функцию, которая будет всем задавать вопрос
 def send_question():
+    # создаю вопрос
+    question = 'Как твои дела по десятибальной школе с десятыми долями?'
 
-	# создаю вопрос
-	question = 'Как твои дела по десятибальной школе с десятыми долями?'
+    # загружаю датафрейм, в который буду класть юзеров, которые используют бота
+    df = pd.read_sql_query("select * from users_statuses where status = 'active'", con=db)
 
-	# беру данные юзеров
-	users_data_df = pd.read_csv('data/user_statuses.csv')
+    # прохожу по каждому активному юзеру
+    for user in df['user_id']:
+        # отправляю юзеру вопрос
+        bot.send_message(chat_id=user, text=question)
 
-	# оставляю только тех, у кого активный статус
-	users_active_data_df = users_data_df[users_data_df['status'] == 'active']
-
-	# прохожу по каждому активному юзеру
-	for user in users_active_data_df['user_id']:
-
-		# отправляю юзеру вопрос
-		bot.send_message(chat_id=user, text=question)
+        # сохраняем новый статус юзера
+        with db.connect() as conn:
+            conn.execute(
+                text('INSERT INTO user_answers (user_id, created_dt) VALUES (:user_id,:date)'),
+                {"user_id": user, "date": datetime.datetime.now()}
+            )
+            conn.commit()
 
 
 # создаю расписание отправки сообщений
-scheduler = BackgroundScheduler(timezone=pytz.timezone("Europe/Moscow"))
+scheduler = BackgroundScheduler()
 
 # создаю три времени, в которые бот будет писать сообщение
 trigger_times = [
-	CronTrigger(hour=23, minute=37, second=10),
-	CronTrigger(hour=23, minute=37, second=20),
-	CronTrigger(hour=23, minute=37, second=30)
-	]
+    CronTrigger(hour=22, minute=38, second=30, timezone=pytz.timezone("Europe/Moscow")),
+    CronTrigger(hour=22, minute=19, second=30, timezone=pytz.timezone("Europe/Moscow")),
+    CronTrigger(hour=22, minute=20, second=30, timezone=pytz.timezone("Europe/Moscow"))
+]
 
 # для каждой точки отправляю сообщение
 for trigger in trigger_times:
-	scheduler.add_job(
-		send_question,
-		trigger=trigger
-	)
+    scheduler.add_job(
+        send_question,
+        trigger=trigger
+    )
 
 # запускаю расписание
 scheduler.start()
 
-# запускаю бота
 bot.infinity_polling()
