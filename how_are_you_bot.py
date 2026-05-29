@@ -221,7 +221,7 @@ def how_are_you(message):
         # если юзер дал нормальный ответ, но продолжает спамить
         bot.reply_to(
             message,
-            'Ты уже ответил, жди следующий вопрос.'
+            'Ты уже ответил(а), жди следующий вопрос.'
         )
 
 
@@ -254,9 +254,9 @@ scheduler = BackgroundScheduler()
 
 # создаю три времени, в которые бот будет писать сообщение
 trigger_times = [
-    CronTrigger(hour=20, minute=54, second=00, timezone=pytz.timezone("Europe/Moscow")),
-    CronTrigger(hour=20, minute=55, second=00, timezone=pytz.timezone("Europe/Moscow")),
-    CronTrigger(hour=23, minute=00, second=00, timezone=pytz.timezone("Europe/Moscow"))
+    CronTrigger(hour=21, minute=21, second=00, timezone=pytz.timezone("Europe/Moscow")),
+    CronTrigger(hour=21, minute=25, second=00, timezone=pytz.timezone("Europe/Moscow")),
+    CronTrigger(hour=21, minute=30, second=00, timezone=pytz.timezone("Europe/Moscow"))
 ]
 
 # для каждой точки отправляю сообщение
