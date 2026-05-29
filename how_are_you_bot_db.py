@@ -13,9 +13,4 @@ def migrate_database():
     migrations = read_migrations('./migrations')
 
     with backend.lock():
-        # Apply any outstanding migrations
         backend.apply_migrations(backend.to_apply(migrations))
-
-
-
-
