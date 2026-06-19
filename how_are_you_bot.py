@@ -254,9 +254,9 @@ scheduler = BackgroundScheduler()
 
 # создаю три времени, в которые бот будет писать сообщение
 trigger_times = [
-    CronTrigger(hour=21, minute=21, second=00, timezone=pytz.timezone("Europe/Moscow")),
-    CronTrigger(hour=21, minute=25, second=00, timezone=pytz.timezone("Europe/Moscow")),
-    CronTrigger(hour=21, minute=30, second=00, timezone=pytz.timezone("Europe/Moscow"))
+    CronTrigger(hour=10, minute=00, second=00, timezone=pytz.timezone("Europe/Moscow")),
+    CronTrigger(hour=16, minute=00, second=00, timezone=pytz.timezone("Europe/Moscow")),
+    CronTrigger(hour=22, minute=00, second=00, timezone=pytz.timezone("Europe/Moscow"))
 ]
 
 # для каждой точки отправляю сообщение
