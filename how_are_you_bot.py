@@ -1,3 +1,4 @@
+# на будущее - https://habr.com/ru/news/1059556/
 import telebot
 
 import os
