@@ -1,9 +1,9 @@
 # How are you?
 
-Telegram-бот, который спрашивает, как дела, и сохраняет ответы.
+A Telegram bot that asks how you're doing and saves your answers.
 
-Бот задаёт один и тот же вопрос три раза в день: в 10:00, 16:00 и 22:00 по московскому времени.
+It asks the same question three times a day: at 10:00, 16:00, and 22:00 Moscow time.
 
-В ответ нужно отправить оценку от 0 до 10.
+You reply with a score from 0 to 10.
 
-Пока бот не активен. В будущем хочу добавить аналитику, чтобы можно было посмотреть, как менялись оценки со временем.
+The bot is currently inactive. I'd like to add analytics in the future to see how the scores change over time.
